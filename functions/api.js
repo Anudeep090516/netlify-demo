@@ -9,6 +9,7 @@ const fs = require('fs');
 const csv = require('fast-csv');
 const path = require('path');
 const math = require('mathjs');
+const Papa = require('papaparse');
 
 app.use(cors());
 app.use(express.json());
@@ -31,25 +32,25 @@ let cachedProducts = null;
 const embeddingCache = new Map();
 const embeddingsFilePath = jsonFilePath;
 
-// Load products from CSV (with caching)
 async function loadProductsFromCSV() {
-    if (cachedProducts) return cachedProducts;
+  if (cachedProducts) return cachedProducts;
 
-    const products = [];
-    const csvPath = csvUrl;
-
-    try {
-        const stream = response.body.pipe(csv.parse({ headers: true, skipEmptyLines: true }));
-        for await (const row of stream) {
-            products.push(row);
-        }
-        cachedProducts = products;
-        console.log(`Loaded ${products.length} products from ${csvPath}`);
-        return cachedProducts;
-    } catch (error) {
-        console.error('Error reading CSV file:', error);
-        throw new Error('Failed to load products.');
-    }
+  return new Promise((resolve, reject) => {
+      Papa.parse(csvUrl, {
+          download: true,
+          header: true,
+          skipEmptyLines: true,
+          complete: (result) => {
+              cachedProducts = result.data;
+              console.log(`Loaded ${cachedProducts.length} products from ${csvUrl}`);
+              resolve(cachedProducts);
+          },
+          error: (error) => {
+              console.error('Error reading CSV file:', error);
+              reject(new Error('Failed to load products'));
+          }
+      });
+  });
 }
 
 // Load stored embeddings from the embeddings.json file (if exists)
