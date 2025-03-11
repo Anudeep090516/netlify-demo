@@ -12,6 +12,9 @@ app.use(cors());
 app.use(express.json());
 let records = [];
 
+const csvFilePath = process.env.CSV_FILE_PATH || './public/products.csv';
+const jsonFilePath = process.env.JSON_FILE_PATH || './public/embeddings.json';
+
 //Get all students
 router.get('/', (req, res) => {
   res.send('App is running..');
@@ -20,14 +23,14 @@ router.get('/', (req, res) => {
 
 let cachedProducts = null;
 const embeddingCache = new Map();
-const embeddingsFilePath = path.join(__dirname, 'embeddings.json');
+const embeddingsFilePath = jsonFilePath;
 
 // Load products from CSV (with caching)
 async function loadProductsFromCSV() {
     if (cachedProducts) return cachedProducts;
 
     const products = [];
-    const csvPath = './products.csv';
+    const csvPath = csvFilePath;
 
     try {
         const stream = fs.createReadStream(csvPath).pipe(csv.parse({ headers: true, skipEmptyLines: true }));

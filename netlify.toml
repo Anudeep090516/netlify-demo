@@ -1,2 +1,6 @@
 [build]
-    functions = "functions"
+  functions = "functions"
+
+[build.environment]
+  CSV_FILE_PATH = "public/products.csv"
+  JSON_FILE_PATH = "public/embeddings.json"
