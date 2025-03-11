@@ -20,7 +20,7 @@ const jsonFilePath = process.env.JSON_FILE_PATH;
 //Get all students
 router.get('/', (req, res) => {
   res.json({
-    message: 'App is running..',
+    message: csvFilePath,
     csvFilePath: csvFilePath,
     jsonFilePath: jsonFilePath
   });
@@ -177,7 +177,7 @@ router.post('/search', async (req, res) => {
 
 //Create new record
 router.post('/add', (req, res) => {
-  res.send('New record added.');
+  res.send('New record added.', csvFilePath, jsonFilePath);
 });
 
 //delete existing record
