@@ -36,13 +36,13 @@ async function loadProductsFromCSV() {
     if (cachedProducts) return cachedProducts;
 
     const products = [];
-    const csvPath = csvFilePath;
+    const csvUrl = 'https://searchapi09.netlify.app/data/products.csv';  // Ensure the correct URL to your CSV file
 
     try {
       const stream = response.body.pipe(csv.parse({ headers: true, skipEmptyLines: true }));
-      for await (const row of stream) {
-          products.push(row);
-      }
+        for await (const row of stream) {
+            products.push(row);
+        }
         cachedProducts = products;
         console.log(`Loaded ${products.length} products from ${csvPath}`);
         return cachedProducts;
