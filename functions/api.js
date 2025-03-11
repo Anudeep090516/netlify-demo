@@ -36,7 +36,7 @@ async function loadProductsFromCSV() {
     if (cachedProducts) return cachedProducts;
 
     const products = [];
-    const csvPath = csvFilePath;
+    const csvPath = csvUrl;
 
     try {
         const stream = response.body.pipe(csv.parse({ headers: true, skipEmptyLines: true }));
