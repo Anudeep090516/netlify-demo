@@ -14,7 +14,7 @@ app.use(cors());
 app.use(express.json());
 let records = [];
 
-const csvFilePath = 'https://searchapi09.netlify.app/data/products.csv'; 
+const csvFilePath = path.join(__dirname, 'data', 'products.csv'); 
 const jsonFilePath = path.join(__dirname, 'data', 'embeddings.json'); 
 
 //Get all students
@@ -36,10 +36,10 @@ async function loadProductsFromCSV() {
     if (cachedProducts) return cachedProducts;
 
     const products = [];
-    const csvUrl = 'https://searchapi09.netlify.app/data/products.csv';  // Ensure the correct URL to your CSV file
+    const csvPath = csvFilePath;
 
     try {
-      const stream = response.body.pipe(csv.parse({ headers: true, skipEmptyLines: true }));
+        const stream = fs.createReadStream(csvPath).pipe(csv.parse({ headers: true, skipEmptyLines: true }));
         for await (const row of stream) {
             products.push(row);
         }
