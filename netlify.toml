@@ -1,6 +1,8 @@
 [build]
-  functions = "functions"
+  functions = "functions"  # Points to the 'functions' directory for serverless functions
+  publish = "public"       # Tells Netlify to serve static assets from the 'public' folder
 
-[build.environment]
-  CSV_FILE_PATH = "public/products.csv"
-  JSON_FILE_PATH = "public/embeddings.json"
+[[redirects]]
+  from = "/products.csv"
+  to = "/products.csv"
+  status = 200
