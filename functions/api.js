@@ -14,7 +14,7 @@ app.use(cors());
 app.use(express.json());
 
 const csvUrl = 'https://searchapi09.netlify.app/products.csv';
-const jsonFilePath = path.join(__dirname, 'data', 'embeddings.json');
+const jsonFilePath = 'https://searchapi09.netlify.app/embeddings.json';
 
 let cachedProducts = null;
 const embeddingCache = new Map();
