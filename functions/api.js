@@ -14,8 +14,8 @@ app.use(cors());
 app.use(express.json());
 let records = [];
 
-const csvFilePath = process.env.CSV_FILE_PATH;
-const jsonFilePath = process.env.JSON_FILE_PATH;
+const csvFilePath = path.resolve(__dirname, process.env.CSV_FILE_PATH);
+const jsonFilePath = path.resolve(__dirname, process.env.JSON_FILE_PATH);
 
 //Get all students
 router.get('/', (req, res) => {
