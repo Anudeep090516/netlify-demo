@@ -1,6 +1,7 @@
 [build]
   functions = "functions"  # Points to the 'functions' directory for serverless functions
   publish = "public"       # Tells Netlify to serve static assets from the 'public' folder
+  environment = { NODE_VERSION = "18" }
 
 [[redirects]]
   from = "/products.csv"
