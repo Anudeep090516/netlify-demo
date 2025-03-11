@@ -2,22 +2,28 @@ const express = require('express');
 const serverless = require('serverless-http');
 const app = express();
 const router = express.Router();
+require('dotenv').config();
 const fetch = require('node-fetch');
 const cors = require('cors');
 const fs = require('fs');
 const csv = require('fast-csv');
 const path = require('path');
 const math = require('mathjs');
+
 app.use(cors());
 app.use(express.json());
 let records = [];
 
-const csvFilePath = process.env.CSV_FILE_PATH || './public/products.csv';
-const jsonFilePath = process.env.JSON_FILE_PATH || './public/embeddings.json';
+const csvFilePath = process.env.CSV_FILE_PATH;
+const jsonFilePath = process.env.JSON_FILE_PATH;
 
 //Get all students
 router.get('/', (req, res) => {
-  res.send('App is running..');
+  res.json({
+    message: 'App is running..',
+    csvFilePath: csvFilePath,
+    jsonFilePath: jsonFilePath
+  });
 });
 
 
