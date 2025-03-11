@@ -3,7 +3,7 @@ const serverless = require('serverless-http');
 const app = express();
 const router = express.Router();
 require('dotenv').config();
-const fetch = require('node-fetch'); // Remove if using Node 18+ native fetch
+const fetch = require('node-fetch');
 const cors = require('cors');
 const fs = require('fs');
 const math = require('mathjs');
@@ -127,7 +127,7 @@ async function preloadEmbeddings() {
 
   const embeddingsToFetch = [];
   for (const product of products) {
-    const desc = product.DESCRIPTION || '';
+    const desc = product.DESCRIPTION?.trim() || ''; // Trim to handle whitespace
     if (desc && !embeddingCache.has(desc)) {
       embeddingsToFetch.push(desc);
     }
@@ -164,15 +164,20 @@ async function searchProducts(queryEmbedding) {
   const results = [];
 
   for (const product of products) {
-    const productEmbedding = embeddingCache.get(product.DESCRIPTION || '');
+    const desc = product.DESCRIPTION?.trim() || ''; // Trim to match preloaded embeddings
+    const productEmbedding = embeddingCache.get(desc);
+    console.log(`Checking product: ${product.NAME || 'unknown'}, Description: "${desc}", Embedding found: ${!!productEmbedding}`);
+
     if (productEmbedding && Array.isArray(productEmbedding) && productEmbedding.length === 768) {
       const similarity = cosineSimilarity(queryEmbedding, productEmbedding);
-      if (!isNaN(similarity)) {
+      console.log(`Similarity for "${product.NAME || 'unknown'}": ${similarity}`);
+
+      if (!isNaN(similarity) && similarity > 0) { // Only include positive similarities
         results.push({
           PRODUCT_ID: product.PRODUCT_ID,
           NAME: product.NAME,
           CREATEDBY: product.CREATEDBY,
-          DESCRIPTION: product.DESCRIPTION,
+          DESCRIPTION: desc,
           similarity,
         });
       }
@@ -181,6 +186,7 @@ async function searchProducts(queryEmbedding) {
     }
   }
 
+  console.log(`Found ${results.length} results before sorting`);
   return results.sort((a, b) => b.similarity - a.similarity).slice(0, 5);
 }
 
@@ -195,11 +201,13 @@ router.post('/search', async (req, res) => {
   }
 
   try {
+    console.log(`Processing query: "${query}"`);
     const queryEmbedding = await getOllamaEmbedding(query);
     if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length !== 768) {
       return res.status(500).send('Failed to generate valid query embedding');
     }
     const searchResults = await searchProducts(queryEmbedding);
+    console.log(`Returning ${searchResults.length} results`);
     res.json(searchResults);
   } catch (error) {
     console.error('Search error:', error.message);
