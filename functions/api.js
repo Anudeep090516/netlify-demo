@@ -3,24 +3,23 @@ const serverless = require('serverless-http');
 const app = express();
 const router = express.Router();
 require('dotenv').config();
-const fetch = require('node-fetch'); // Remove if using Node 18+ (native fetch)
+const fetch = require('node-fetch'); // Remove if using Node 18+ native fetch
 const cors = require('cors');
 const fs = require('fs');
-const path = require('path');
 const math = require('mathjs');
-const { parse } = require('csv-parse/sync'); // Using csv-parse for Node.js
+const { parse } = require('csv-parse/sync');
 
 app.use(cors());
 app.use(express.json());
 
 const csvUrl = 'https://searchapi09.netlify.app/products.csv';
-const jsonFilePath = 'https://searchapi09.netlify.app/embeddings.json';
+const jsonUrl = 'https://searchapi09.netlify.app/embeddings.json';
+const tmpJsonFilePath = '/tmp/embeddings.json'; // Temporary file in Netlify's writable directory
 
 let cachedProducts = null;
 const embeddingCache = new Map();
-const embeddingsFilePath = jsonFilePath;
 
-// Load products from CSV using fetch and csv-parse
+// Load products from CSV
 async function loadProductsFromCSV() {
   if (cachedProducts) return cachedProducts;
 
@@ -41,37 +40,54 @@ async function loadProductsFromCSV() {
     return products;
   } catch (error) {
     console.error('Error loading CSV file:', error);
-    throw new Error('Failed to load products');
+    throw error;
   }
 }
 
-// Load stored embeddings from the embeddings.json file (if exists)
+// Load stored embeddings from URL or /tmp
 async function loadEmbeddingsFromFile() {
   try {
-    if (fs.existsSync(embeddingsFilePath)) {
-      const data = fs.readFileSync(embeddingsFilePath, 'utf8');
-      return JSON.parse(data);
+    // First try loading from /tmp if it exists
+    if (fs.existsSync(tmpJsonFilePath)) {
+      const data = fs.readFileSync(tmpJsonFilePath, 'utf8');
+      const embeddings = JSON.parse(data);
+      embeddings.forEach(([text, embedding]) => embeddingCache.set(text, embedding));
+      console.log(`Loaded ${embeddingCache.size} embeddings from ${tmpJsonFilePath}`);
+      return;
     }
-    return [];
+
+    // If /tmp file doesn’t exist, fetch from URL
+    const response = await fetch(jsonUrl);
+    if (!response.ok) {
+      console.log(`Embeddings URL not found or inaccessible (status: ${response.status}), starting fresh`);
+      return;
+    }
+    const data = await response.json();
+    data.forEach(([text, embedding]) => embeddingCache.set(text, embedding));
+    console.log(`Loaded ${embeddingCache.size} embeddings from ${jsonUrl}`);
+
+    // Save to /tmp for this invocation
+    fs.writeFileSync(tmpJsonFilePath, JSON.stringify(data));
   } catch (error) {
-    console.error('Error loading embeddings from file:', error);
-    return [];
+    console.error('Error loading embeddings:', error);
+    // Proceed with empty cache if loading fails
   }
 }
 
-// Save embeddings to the embeddings.json file
+// Save embeddings to /tmp
 async function saveEmbeddingsToFile() {
   try {
     const data = JSON.stringify([...embeddingCache.entries()]);
-    fs.writeFileSync(embeddingsFilePath, data);
-    console.log('Embeddings saved to embeddings.json');
+    fs.writeFileSync(tmpJsonFilePath, data);
+    console.log(`Embeddings saved to ${tmpJsonFilePath}`);
   } catch (error) {
-    console.error('Error saving embeddings to file:', error);
+    console.error('Error saving embeddings to /tmp:', error);
   }
 }
 
 // Get embedding from Ollama (with caching)
 async function getOllamaEmbedding(text) {
+  if (!text) return null;
   if (embeddingCache.has(text)) {
     return embeddingCache.get(text);
   }
@@ -94,16 +110,43 @@ async function getOllamaEmbedding(text) {
     }
 
     embeddingCache.set(text, data.embedding);
-    await saveEmbeddingsToFile();
     return data.embedding;
   } catch (error) {
     console.error(`Embedding error for "${text}":`, error.message);
-    throw error;
+    return null;
   }
 }
 
-// Calculate cosine similarity using math.js
+// Preload all product embeddings at startup
+let preloadedEmbeddings = false;
+async function preloadEmbeddings() {
+  if (preloadedEmbeddings) return;
+  await loadEmbeddingsFromFile();
+  const products = await loadProductsFromCSV();
+
+  const embeddingsToFetch = [];
+  for (const product of products) {
+    const desc = product.DESCRIPTION || '';
+    if (desc && !embeddingCache.has(desc)) {
+      embeddingsToFetch.push(desc);
+    }
+  }
+
+  console.log(`Preloading embeddings for ${embeddingsToFetch.length} products`);
+  await Promise.all(
+    embeddingsToFetch.map(async (desc) => {
+      const embedding = await getOllamaEmbedding(desc);
+      if (embedding) embeddingCache.set(desc, embedding);
+    })
+  );
+  await saveEmbeddingsToFile();
+  preloadedEmbeddings = true;
+  console.log('Preloading complete');
+}
+
+// Calculate cosine similarity
 function cosineSimilarity(a, b) {
+  if (!a || !b) return 0;
   const dotProduct = math.dot(a, b);
   const magnitudeA = math.norm(a);
   const magnitudeB = math.norm(b);
@@ -117,10 +160,9 @@ async function searchProducts(queryEmbedding) {
   const results = [];
 
   for (const product of products) {
-    try {
-      const productEmbedding = await getOllamaEmbedding(product.DESCRIPTION || '');
+    const productEmbedding = embeddingCache.get(product.DESCRIPTION || '');
+    if (productEmbedding) {
       const similarity = cosineSimilarity(queryEmbedding, productEmbedding);
-
       if (!isNaN(similarity)) {
         results.push({
           PRODUCT_ID: product.PRODUCT_ID,
@@ -130,13 +172,14 @@ async function searchProducts(queryEmbedding) {
           similarity,
         });
       }
-    } catch (error) {
-      console.warn(`Skipping product "${product.NAME || 'unknown'}" due to error: ${error.message}`);
     }
   }
 
   return results.sort((a, b) => b.similarity - a.similarity).slice(0, 5);
 }
+
+// Initialize data at startup
+preloadEmbeddings().catch((err) => console.error('Preload failed:', err));
 
 // Search route
 router.post('/search', async (req, res) => {
@@ -147,6 +190,9 @@ router.post('/search', async (req, res) => {
 
   try {
     const queryEmbedding = await getOllamaEmbedding(query);
+    if (!queryEmbedding) {
+      return res.status(500).send('Failed to generate query embedding');
+    }
     const searchResults = await searchProducts(queryEmbedding);
     res.json(searchResults);
   } catch (error) {
@@ -160,7 +206,8 @@ router.get('/', (req, res) => {
   res.json({
     message: 'API is running',
     csvUrl: csvUrl,
-    jsonFilePath: jsonFilePath,
+    jsonUrl: jsonUrl,
+    tmpJsonFilePath: tmpJsonFilePath,
   });
 });
 
