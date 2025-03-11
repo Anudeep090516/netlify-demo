@@ -14,7 +14,7 @@ app.use(express.json());
 
 const csvUrl = 'https://searchapi09.netlify.app/products.csv';
 const jsonUrl = 'https://searchapi09.netlify.app/embeddings.json';
-const tmpJsonFilePath = '/tmp/embeddings.json'; // Temporary file in Netlify's writable directory
+const tmpJsonFilePath = '/tmp/embeddings.json';
 
 let cachedProducts = null;
 const embeddingCache = new Map();
@@ -47,7 +47,6 @@ async function loadProductsFromCSV() {
 // Load stored embeddings from URL or /tmp
 async function loadEmbeddingsFromFile() {
   try {
-    // First try loading from /tmp if it exists
     if (fs.existsSync(tmpJsonFilePath)) {
       const data = fs.readFileSync(tmpJsonFilePath, 'utf8');
       const embeddings = JSON.parse(data);
@@ -56,21 +55,23 @@ async function loadEmbeddingsFromFile() {
       return;
     }
 
-    // If /tmp file doesn’t exist, fetch from URL
     const response = await fetch(jsonUrl);
     if (!response.ok) {
       console.log(`Embeddings URL not found or inaccessible (status: ${response.status}), starting fresh`);
       return;
     }
     const data = await response.json();
-    data.forEach(([text, embedding]) => embeddingCache.set(text, embedding));
+    data.forEach(([text, embedding]) => {
+      if (Array.isArray(embedding) && embedding.length === 768) {
+        embeddingCache.set(text, embedding);
+      } else {
+        console.warn(`Invalid embedding for "${text}": expected length 768, got ${embedding?.length || 'undefined'}`);
+      }
+    });
     console.log(`Loaded ${embeddingCache.size} embeddings from ${jsonUrl}`);
-
-    // Save to /tmp for this invocation
     fs.writeFileSync(tmpJsonFilePath, JSON.stringify(data));
   } catch (error) {
     console.error('Error loading embeddings:', error);
-    // Proceed with empty cache if loading fails
   }
 }
 
@@ -85,9 +86,9 @@ async function saveEmbeddingsToFile() {
   }
 }
 
-// Get embedding from Ollama (with caching)
+// Get embedding from Ollama (with validation)
 async function getOllamaEmbedding(text) {
-  if (!text) return null;
+  if (!text || typeof text !== 'string') return null;
   if (embeddingCache.has(text)) {
     return embeddingCache.get(text);
   }
@@ -105,8 +106,8 @@ async function getOllamaEmbedding(text) {
     }
 
     const data = await response.json();
-    if (!data.embedding) {
-      throw new Error('No embedding returned from Ollama');
+    if (!Array.isArray(data.embedding) || data.embedding.length !== 768) {
+      throw new Error(`Invalid embedding: expected length 768, got ${data.embedding?.length || 'undefined'}`);
     }
 
     embeddingCache.set(text, data.embedding);
@@ -144,9 +145,12 @@ async function preloadEmbeddings() {
   console.log('Preloading complete');
 }
 
-// Calculate cosine similarity
+// Calculate cosine similarity with validation
 function cosineSimilarity(a, b) {
-  if (!a || !b) return 0;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || a.length === 0) {
+    console.warn(`Invalid vectors for cosine similarity: length a=${a?.length || 'undefined'}, b=${b?.length || 'undefined'}`);
+    return 0;
+  }
   const dotProduct = math.dot(a, b);
   const magnitudeA = math.norm(a);
   const magnitudeB = math.norm(b);
@@ -161,7 +165,7 @@ async function searchProducts(queryEmbedding) {
 
   for (const product of products) {
     const productEmbedding = embeddingCache.get(product.DESCRIPTION || '');
-    if (productEmbedding) {
+    if (productEmbedding && Array.isArray(productEmbedding) && productEmbedding.length === 768) {
       const similarity = cosineSimilarity(queryEmbedding, productEmbedding);
       if (!isNaN(similarity)) {
         results.push({
@@ -172,6 +176,8 @@ async function searchProducts(queryEmbedding) {
           similarity,
         });
       }
+    } else {
+      console.warn(`Skipping product "${product.NAME || 'unknown'}": invalid or missing embedding`);
     }
   }
 
@@ -190,8 +196,8 @@ router.post('/search', async (req, res) => {
 
   try {
     const queryEmbedding = await getOllamaEmbedding(query);
-    if (!queryEmbedding) {
-      return res.status(500).send('Failed to generate query embedding');
+    if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length !== 768) {
+      return res.status(500).send('Failed to generate valid query embedding');
     }
     const searchResults = await searchProducts(queryEmbedding);
     res.json(searchResults);
